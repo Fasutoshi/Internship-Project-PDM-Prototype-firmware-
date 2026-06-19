@@ -1,0 +1,227 @@
+/**
+ * @file    can_adc_latch.c
+ * @brief   TMS570LS3137 — CAN ADC MUX + Latch library implementation
+ */
+
+#include "can_adc_latch.h"
+
+/* ── Private state ───────────────────────────────────────────── */
+static QueueHandle_t  s_adcQueue;
+static QueueHandle_t  s_latchQueue;
+static volatile uint8_t s_latchState = 0;
+
+/* ================================================================
+ * Private: Latch driver (74HC259)
+ * ================================================================ */
+static void LatchWrite(uint8_t addr, uint8_t data)
+{
+    uint32_t dout = gioPORTA->DOUT;
+    dout &= ~((1u << LATCH_A0) | (1u << LATCH_A1) |
+              (1u << LATCH_A2) | (1u << LATCH_D)  |
+              (1u << LATCH_EN));
+    dout |= (( addr        & 1u) << LATCH_A0)
+          | (((addr >> 1u) & 1u) << LATCH_A1)
+          | (((addr >> 2u) & 1u) << LATCH_A2)
+          | (( data        & 1u) << LATCH_D);
+    gioPORTA->DOUT = dout;
+    gioPORTA->DSET = (1u << LATCH_EN);   /* EN pulse HIGH */
+    gioPORTA->DCLR = (1u << LATCH_EN);   /* EN pulse LOW  */
+}
+
+static void LatchSet(uint8_t bit)
+{
+    s_latchState |= (1u << bit);
+    LatchWrite(bit, 1u);
+}
+
+static void LatchClear(uint8_t bit)
+{
+    s_latchState &= ~(1u << bit);
+    LatchWrite(bit, 0u);
+}
+
+static void LatchToggle(uint8_t bit)
+{
+    if ((s_latchState >> bit) & 1u)
+        LatchClear(bit);
+    else
+        LatchSet(bit);
+}
+
+/* ================================================================
+ * Private: MUX + ADC driver (74HC4051 + ADC1)
+ * ================================================================ */
+static void SelectMuxChannel(uint8_t ch)
+{
+    gioSetBit(MUX_PORT, MUX_A0, (ch >> 0u) & 1u);
+    gioSetBit(MUX_PORT, MUX_A1, (ch >> 1u) & 1u);
+    gioSetBit(MUX_PORT, MUX_A2, (ch >> 2u) & 1u);
+    gioSetBit(MUX_PORT, MUX_EN, 0u);   /* EN# LOW = enable */
+}
+
+static uint16_t ReadADC(void)
+{
+    adcData_t adcData;
+    adcStartConversion(adcREG1, adcGROUP1);
+    volatile uint32_t timeout = 200000UL;
+    while (!adcIsConversionComplete(adcREG1, adcGROUP1)) {
+        if (--timeout == 0UL) return 0xFFFFU;
+    }
+    adcGetData(adcREG1, adcGROUP1, &adcData);
+    return (uint16_t)adcData.value;
+}
+
+/* ================================================================
+ * Private: FreeRTOS Tasks
+ * ================================================================ */
+
+/* Task 1: CAN RX — รับ cmd แยกส่ง Queue */
+static void TaskCANRx(void *pvParameters)
+{
+    uint8_t    rx[8];
+    Cmd_t  cmd;
+    (void)pvParameters;
+
+    for (;;) {
+        if (canIsRxMessageArrived(canREG1, CAN_RX_BOX)) {
+            canGetData(canREG1, CAN_RX_BOX, rx);
+            cmd.cmd   = rx[0];
+            cmd.param = rx[1];
+
+            if (cmd.cmd == CMD_ADC && cmd.param <= 7U) {
+                xQueueSend(s_adcQueue, &cmd, 0);
+            }
+            else if (cmd.cmd == CMD_LATCH &&
+                     (cmd.param <= 7U ||
+                      cmd.param == LATCH_CLEAR_ALL ||
+                      cmd.param == LATCH_SET_ALL)) {
+                xQueueSend(s_latchQueue, &cmd, 0);
+            }
+        }
+        vTaskDelay(pdMS_TO_TICKS(10));
+    }
+}
+
+/* Task 2: ADC Reader */
+static void TaskADC(void *pvParameters)
+{
+    Cmd_t cmd;
+    uint8_t   tx[8];
+    uint16_t  adc;
+    uint32_t  mv;
+    (void)pvParameters;
+
+    for (;;) {
+        if (xQueueReceive(s_adcQueue, &cmd, portMAX_DELAY) == pdTRUE) {
+
+            SelectMuxChannel(cmd.param);
+            vTaskDelay(pdMS_TO_TICKS(1));   /* MUX settle */
+
+            adc = ReadADC();
+            mv  = (uint32_t)adc * VREF_MV / ADC_MAX;
+
+            /* Frame 1: ADC raw (0xAD) */
+            tx[0] = FRAME_ADC;
+            tx[1] = cmd.param;
+            tx[2] = (adc >> 8u) & 0x0Fu;
+            tx[3] =  adc & 0xFFu;
+            tx[4] = (adc == 0xFFFFU) ? FRAME_ERR : 0x00U;
+            tx[5] = tx[6] = tx[7] = 0U;
+            canTransmit(canREG1, CAN_TX_BOX, tx);
+
+            vTaskDelay(pdMS_TO_TICKS(2));
+
+            /* Frame 2: Voltage mV (0xBB) */
+            tx[0] = FRAME_VOLT;
+            tx[1] = cmd.param;
+            tx[2] = (mv >> 8u) & 0xFFu;
+            tx[3] =  mv & 0xFFu;
+            tx[4] = tx[5] = tx[6] = tx[7] = 0U;
+            canTransmit(canREG1, CAN_TX_BOX, tx);
+        }
+    }
+}
+
+/* Task 3: Latch controller */
+static void TaskLatch(void *pvParameters)
+{
+    Cmd_t cmd;
+    uint8_t   tx[8];
+    uint8_t   i;
+    (void)pvParameters;
+
+    for (;;) {
+        if (xQueueReceive(s_latchQueue, &cmd, portMAX_DELAY) == pdTRUE) {
+
+            tx[4] = tx[5] = tx[6] = tx[7] = 0U;
+
+            if (cmd.param <= 7U) {
+                LatchToggle(cmd.param);
+                tx[0] = FRAME_LATCH;
+                tx[1] = cmd.param;
+                tx[2] = (s_latchState >> cmd.param) & 1u;
+                tx[3] = s_latchState;
+            }
+            else if (cmd.param == LATCH_CLEAR_ALL) {
+                for (i = 0U; i <= 7U; i++) LatchClear(i);
+                tx[0] = FRAME_LATCH;
+                tx[1] = LATCH_CLEAR_ALL;
+                tx[2] = 0xFFU;   /* confirm */
+                tx[3] = s_latchState;
+            }
+            else if (cmd.param == LATCH_SET_ALL) {
+                for (i = 0U; i <= 7U; i++) LatchSet(i);
+                tx[0] = FRAME_LATCH;
+                tx[1] = LATCH_SET_ALL;
+                tx[2] = 0xFFU;   /* confirm */
+                tx[3] = s_latchState;
+            }
+            canTransmit(canREG1, CAN_TX_BOX, tx);
+        }
+    }
+}
+
+/* ================================================================
+ * Public API
+ * ================================================================ */
+void muxlatchInit(void)
+{
+    uint8_t i;
+
+    /* MUX GPIO → output */
+    uint32_t muxMask = (1u << MUX_A0) | (1u << MUX_A1) |
+                       (1u << MUX_A2) | (1u << MUX_EN);
+    gioSetDirection(MUX_PORT, muxMask);
+
+    /* Latch GPIO → output */
+    uint32_t latchMask = (1u << LATCH_A0) | (1u << LATCH_A1) |
+                         (1u << LATCH_A2) | (1u << LATCH_EN) |
+                         (1u << LATCH_D);
+    gioSetDirection(gioPORTA, latchMask);
+    gioSetBit(gioPORTA, LATCH_EN, 0u);
+
+    /* Clear latch ทุก output */
+    for (i = 0U; i <= 7U; i++) LatchClear(i);
+
+    /* FreeRTOS Queue */
+    s_adcQueue   = xQueueCreate(QUEUE_DEPTH, sizeof(Cmd_t));
+    s_latchQueue = xQueueCreate(QUEUE_DEPTH, sizeof(Cmd_t));
+
+    /* FreeRTOS Tasks */
+    xTaskCreate(TaskCANRx, "CANRx", STACK_SIZE, NULL, 3, NULL);
+    xTaskCreate(TaskADC,   "ADC",   STACK_SIZE, NULL, 1, NULL);
+    xTaskCreate(TaskLatch, "Latch", STACK_SIZE, NULL, 2, NULL);
+}
+
+uint8_t GetLatchState(void)
+{
+    return s_latchState;
+}
+
+uint16_t ReadADC(uint8_t ch)
+{
+    if (ch > 7U) return 0xFFFFU;
+    SelectMuxChannel(ch);
+    vTaskDelay(pdMS_TO_TICKS(1));
+    return ReadADC();
+}

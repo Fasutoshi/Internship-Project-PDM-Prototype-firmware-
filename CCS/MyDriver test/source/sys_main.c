@@ -1,0 +1,156 @@
+/** @file sys_main.c 
+*   @brief Application main file
+*   @date 11-Dec-2018
+*   @version 04.07.01
+*
+*   This file contains an empty main function,
+*   which can be used for the application.
+*/
+
+/* 
+* Copyright (C) 2009-2018 Texas Instruments Incorporated - www.ti.com 
+* 
+* 
+*  Redistribution and use in source and binary forms, with or without 
+*  modification, are permitted provided that the following conditions 
+*  are met:
+*
+*    Redistributions of source code must retain the above copyright 
+*    notice, this list of conditions and the following disclaimer.
+*
+*    Redistributions in binary form must reproduce the above copyright
+*    notice, this list of conditions and the following disclaimer in the 
+*    documentation and/or other materials provided with the   
+*    distribution.
+*
+*    Neither the name of Texas Instruments Incorporated nor the names of
+*    its contributors may be used to endorse or promote products derived
+*    from this software without specific prior written permission.
+*
+*  THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS 
+*  "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT 
+*  LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+*  A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT 
+*  OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, 
+*  SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT 
+*  LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+*  DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+*  THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT 
+*  (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE 
+*  OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+*
+*/
+
+
+/* USER CODE BEGIN (0) */
+#include "can_mux_latch.h"
+#include "adc.h"
+#include "can.h"
+#include "gio.h"
+#include "het.h"
+/* USER CODE END */
+
+/* Include Files */
+
+#include "sys_common.h"
+
+/* USER CODE BEGIN (1) */
+/* USER CODE END */
+
+/** @fn void main(void)
+*   @brief Application main function
+*   @note This function is empty by default.
+*
+*   This function is called after startup.
+*   The user can use this function to implement the application.
+*/
+
+/* USER CODE BEGIN (2) */
+/* USER CODE END */
+
+uint8	emacAddress[6U] = 	{0xFFU, 0xFFU, 0xFFU, 0xFFU, 0xFFU, 0xFFU};
+uint32 	emacPhyAddress	=	0U;
+
+int main(void)
+{
+/* USER CODE BEGIN (3) */
+
+    // * @brief   ตัวอย่างการใช้งาน can_adc_latch library
+    // *
+    // * ══════════════════════════════════════════════════
+    // *  ตัวอย่างที่ 1: ใช้ค่า default ทั้งหมด
+    // * ══════════════════════════════════════════════════
+    // *  MUX  → gioPORTB  pin 0,1,2,3
+    // *  Latch → gioPORTA  pin 0,1,2,3,5
+    // *  Vref → 3000 mV
+    // *  CAN  → canREG1  BOX1=TX  BOX2=RX
+    // *
+    // * ══════════════════════════════════════════════════
+    // *  ตัวอย่างที่ 2: แก้ค่าบางตัว
+    // * ══════════════════════════════════════════════════
+    // *  เปลี่ยนแค่ vrefMv และ latchDPin
+        /* ── Init hardware ── */
+        adcInit();
+        canInit();
+        gioInit();
+        hetInit();
+
+        /* ────────────────────────────────────────────────────────────
+         * ตัวอย่างที่ 1: ใช้ค่า default ทั้งหมด (แนะนำ)
+         * ──────────────────────────────────────────────────────────*/
+        CAL_Config_t cfg;
+        CAL_DefaultConfig(&cfg);   /* โหลดค่า default */
+        CAL_Init(&cfg);            /* เริ่มต้น library */
+    //
+
+        /* ────────────────────────────────────────────────────────────
+         * ตัวอย่างที่ 2: แก้เฉพาะค่าที่ต่างจาก default
+         * ──────────────────────────────────────────────────────────*/
+
+    //    CAL_Config_t cfg;
+    //    CAL_DefaultConfig(&cfg);       // โหลด default ก่อนเสมอ
+    //
+    //    // แก้เฉพาะที่ต้องการ
+    //    cfg.vrefMv     = 3300UL;       // วัดได้ ADREFHI = 3.3V
+    //    cfg.muxPort    = gioPORTA;     // ย้าย MUX ไป PORTA
+    //    cfg.muxA0Pin   = 4U;           // A0 ที่ pin 4
+    //    cfg.muxA1Pin   = 5U;           // A1 ที่ pin 5
+    //    cfg.muxA2Pin   = 6U;           // A2 ที่ pin 6
+    //    cfg.muxEnPin   = 7U;           // EN ที่ pin 7
+    //    cfg.latchDPin  = 4U;           // D ที่ pin 4 (ถ้า pin 5 ใช้อย่างอื่น)
+    //    cfg.canTxBox   = canMESSAGE_BOX3;  // เปลี่ยน TX box
+    //    cfg.stackSize  = 512U;         // เพิ่ม stack ถ้า task ใช้ memory เยอะ
+    //
+    //    CAL_Init(&cfg);
+
+
+
+        /* ────────────────────────────────────────────────────────────
+         * ตัวอย่างที่ 3: ใช้ Public API ใน task ของตัวเอง
+         * ──────────────────────────────────────────────────────────*/
+        /*
+        // อ่าน latch state
+        uint8_t state = CAL_GetLatchState();
+        if (state & (1u << 3)) {
+            // Q3 เปิดอยู่
+        }
+
+        // อ่าน ADC โดยตรง (ไม่ผ่าน CAN)
+        uint16_t raw = CAL_ReadADC(0);        // อ่าน Ain0
+        uint32_t mv  = CAL_RawToMv(raw);     // แปลงเป็น mV
+
+        // แปลงเป็น Volt (float)
+        float volt = mv / 1000.0f;
+        */
+
+        vTaskStartScheduler();
+        for (;;);
+
+/* USER CODE END */
+
+    return 0;
+}
+
+
+/* USER CODE BEGIN (4) */
+/* USER CODE END */

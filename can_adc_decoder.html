@@ -1,0 +1,512 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CAN ADC Decoder</title>
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Saira+Condensed:wght@300;400;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0d0f12;
+    --surface: #141720;
+    --surface2: #1c2030;
+    --border: #2a3040;
+    --accent: #00e5ff;
+    --accent2: #ff6b35;
+    --green: #39ff88;
+    --yellow: #ffd700;
+    --red: #ff4444;
+    --text: #c8d0e0;
+    --text-dim: #5a6580;
+    --font-mono: 'Share Tech Mono', monospace;
+    --font-ui: 'Saira Condensed', sans-serif;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font-ui);
+    min-height: 100vh;
+    padding: 24px;
+  }
+
+  /* grid noise overlay */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(0,229,255,0.02) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(0,229,255,0.02) 1px, transparent 1px);
+    background-size: 40px 40px;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  .wrap { position: relative; z-index: 1; max-width: 860px; margin: 0 auto; }
+
+  /* header */
+  header {
+    display: flex; align-items: flex-end; gap: 16px;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 16px; margin-bottom: 28px;
+  }
+  .logo {
+    font-family: var(--font-mono);
+    font-size: 11px; color: var(--accent);
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    line-height: 1;
+  }
+  h1 {
+    font-size: 32px; font-weight: 700;
+    letter-spacing: -0.5px; line-height: 1;
+    color: #fff;
+  }
+  h1 span { color: var(--accent); }
+  .version {
+    font-family: var(--font-mono);
+    font-size: 10px; color: var(--text-dim);
+    margin-left: auto;
+  }
+
+  /* panel */
+  .panel {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    margin-bottom: 16px;
+    overflow: hidden;
+  }
+  .panel-header {
+    display: flex; align-items: center; gap: 10px;
+    background: var(--surface2);
+    border-bottom: 1px solid var(--border);
+    padding: 10px 16px;
+  }
+  .panel-tag {
+    font-family: var(--font-mono);
+    font-size: 10px; font-weight: 600;
+    letter-spacing: 2px; text-transform: uppercase;
+    padding: 2px 8px; border-radius: 2px;
+  }
+  .tag-rx { background: rgba(0,229,255,0.12); color: var(--accent); border: 1px solid rgba(0,229,255,0.3); }
+  .tag-adc { background: rgba(57,255,136,0.12); color: var(--green); border: 1px solid rgba(57,255,136,0.3); }
+  .tag-volt { background: rgba(255,107,53,0.12); color: var(--accent2); border: 1px solid rgba(255,107,53,0.3); }
+  .panel-title { font-size: 13px; font-weight: 600; letter-spacing: 1px; text-transform: uppercase; color: var(--text); }
+  .panel-body { padding: 20px; }
+
+  /* frame visualizer */
+  .frame-grid {
+    display: grid;
+    grid-template-columns: repeat(8, 1fr);
+    gap: 6px;
+    margin-bottom: 20px;
+  }
+  .byte-cell {
+    display: flex; flex-direction: column; align-items: center;
+    gap: 4px;
+  }
+  .byte-label {
+    font-family: var(--font-mono);
+    font-size: 9px; color: var(--text-dim);
+    text-transform: uppercase; letter-spacing: 1px;
+  }
+  .byte-input {
+    width: 100%; text-align: center;
+    font-family: var(--font-mono);
+    font-size: 16px; font-weight: 600;
+    padding: 8px 4px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    color: var(--text);
+    text-transform: uppercase;
+    transition: border-color 0.15s, color 0.15s;
+    outline: none;
+  }
+  .byte-input:focus { border-color: var(--accent); color: var(--accent); }
+  .byte-input.highlight-type  { border-color: var(--accent); color: var(--accent); }
+  .byte-input.highlight-ch    { border-color: var(--yellow); color: var(--yellow); }
+  .byte-input.highlight-data  { border-color: var(--green); color: var(--green); }
+  .byte-input.highlight-err   { border-color: var(--red); color: var(--red); }
+  .byte-input.error-input     { border-color: var(--red) !important; }
+  .byte-desc {
+    font-size: 9px; color: var(--text-dim);
+    text-align: center; line-height: 1.2;
+    min-height: 24px;
+  }
+
+  /* results */
+  .results-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 12px;
+    margin-top: 16px;
+  }
+  .result-card {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 14px 16px;
+    position: relative;
+    overflow: hidden;
+  }
+  .result-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+  }
+  .result-card.adc::before  { background: var(--green); }
+  .result-card.volt::before { background: var(--accent2); }
+  .result-card.mv::before   { background: var(--accent); }
+  .result-card.pct::before  { background: var(--yellow); }
+  .result-label {
+    font-size: 10px; font-weight: 600;
+    letter-spacing: 2px; text-transform: uppercase;
+    color: var(--text-dim); margin-bottom: 8px;
+  }
+  .result-value {
+    font-family: var(--font-mono);
+    font-size: 28px; font-weight: 400;
+    line-height: 1; color: #fff;
+  }
+  .result-unit {
+    font-size: 13px; color: var(--text-dim); margin-left: 4px;
+  }
+  .result-sub {
+    font-family: var(--font-mono);
+    font-size: 11px; color: var(--text-dim);
+    margin-top: 6px;
+  }
+
+  /* bar */
+  .bar-wrap { margin-top: 16px; }
+  .bar-label { display: flex; justify-content: space-between; margin-bottom: 6px; }
+  .bar-label span { font-family: var(--font-mono); font-size: 10px; color: var(--text-dim); }
+  .bar-track {
+    height: 6px; background: var(--border); border-radius: 3px; overflow: hidden;
+  }
+  .bar-fill {
+    height: 100%; border-radius: 3px;
+    background: linear-gradient(90deg, var(--green), var(--accent));
+    transition: width 0.3s ease;
+    width: 0%;
+  }
+
+  /* vref input */
+  .config-row {
+    display: flex; align-items: center; gap: 12px;
+    margin-bottom: 16px; flex-wrap: wrap;
+  }
+  .config-label {
+    font-size: 11px; font-weight: 600;
+    letter-spacing: 2px; text-transform: uppercase;
+    color: var(--text-dim); min-width: 80px;
+  }
+  .config-input {
+    font-family: var(--font-mono);
+    font-size: 14px; padding: 6px 12px;
+    background: var(--bg); border: 1px solid var(--border);
+    border-radius: 3px; color: var(--text);
+    width: 90px; outline: none;
+    transition: border-color 0.15s;
+  }
+  .config-input:focus { border-color: var(--accent); }
+
+  /* status indicator */
+  .status-row {
+    display: flex; align-items: center; gap: 8px;
+    margin-top: 14px; padding-top: 14px;
+    border-top: 1px solid var(--border);
+  }
+  .dot {
+    width: 7px; height: 7px; border-radius: 50%;
+    background: var(--text-dim);
+    transition: background 0.2s;
+  }
+  .dot.ok   { background: var(--green); box-shadow: 0 0 6px var(--green); }
+  .dot.err  { background: var(--red);   box-shadow: 0 0 6px var(--red); }
+  .status-text {
+    font-family: var(--font-mono);
+    font-size: 11px; color: var(--text-dim);
+  }
+
+  /* formula */
+  .formula {
+    font-family: var(--font-mono);
+    font-size: 11px; color: var(--text-dim);
+    background: var(--bg);
+    border-left: 2px solid var(--border);
+    padding: 8px 12px; border-radius: 0 3px 3px 0;
+    margin-top: 12px; line-height: 1.8;
+  }
+  .formula .hi { color: var(--accent); }
+
+  /* divider */
+  .divider {
+    border: none; border-top: 1px solid var(--border);
+    margin: 20px 0;
+  }
+
+  /* legend */
+  .legend { display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 14px; }
+  .legend-item { display: flex; align-items: center; gap: 6px; }
+  .legend-dot { width: 8px; height: 8px; border-radius: 50%; }
+  .legend-text { font-size: 10px; color: var(--text-dim); letter-spacing: 1px; text-transform: uppercase; }
+
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+  .live { animation: pulse 1.5s ease-in-out infinite; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div>
+      <div class="logo">TMS570LS3137 //</div>
+      <h1>CAN <span>ADC</span> Decoder</h1>
+    </div>
+    <div class="version">74HC4051 MUX · 12-BIT ADC · v1.0</div>
+  </header>
+
+  <!-- CONFIG -->
+  <div class="panel">
+    <div class="panel-header">
+      <span class="panel-tag tag-rx">CONFIG</span>
+      <span class="panel-title">Reference Voltage</span>
+    </div>
+    <div class="panel-body">
+      <div class="config-row">
+        <span class="config-label">Vref</span>
+        <input class="config-input" type="number" id="vref" value="3.3" step="0.1" min="1" max="5" oninput="decode()">
+        <span style="font-size:12px;color:var(--text-dim)">V &nbsp;·&nbsp; TMS570 ADREFHI pin</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- FRAME INPUT -->
+  <div class="panel">
+    <div class="panel-header">
+      <span class="panel-tag tag-rx">RX FRAME</span>
+      <span class="panel-title">ใส่ค่า Hex จาก USB-CAN Tool</span>
+      <span class="live" style="margin-left:auto;font-family:var(--font-mono);font-size:10px;color:var(--accent)">● LIVE</span>
+    </div>
+    <div class="panel-body">
+
+      <div class="legend">
+        <div class="legend-item"><div class="legend-dot" style="background:var(--accent)"></div><span class="legend-text">type byte</span></div>
+        <div class="legend-item"><div class="legend-dot" style="background:var(--yellow)"></div><span class="legend-text">channel</span></div>
+        <div class="legend-item"><div class="legend-dot" style="background:var(--green)"></div><span class="legend-text">data</span></div>
+        <div class="legend-item"><div class="legend-dot" style="background:var(--text-dim)"></div><span class="legend-text">unused</span></div>
+      </div>
+
+      <div class="frame-grid" id="frame-grid">
+        <!-- generated by JS -->
+      </div>
+
+      <div class="status-row">
+        <div class="dot" id="status-dot"></div>
+        <span class="status-text" id="status-text">—</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- RESULTS -->
+  <div class="panel" id="result-panel" style="display:none">
+    <div class="panel-header">
+      <span class="panel-tag tag-adc" id="res-tag">RESULT</span>
+      <span class="panel-title" id="res-title">Decoded Values</span>
+    </div>
+    <div class="panel-body">
+
+      <div class="results-row">
+        <div class="result-card adc">
+          <div class="result-label">ADC Raw</div>
+          <div class="result-value" id="r-adc">—<span class="result-unit">/ 4095</span></div>
+          <div class="result-sub" id="r-adc-hex">0x000</div>
+        </div>
+        <div class="result-card volt">
+          <div class="result-label">Voltage</div>
+          <div class="result-value" id="r-volt">—<span class="result-unit">V</span></div>
+          <div class="result-sub" id="r-mv">— mV</div>
+        </div>
+        <div class="result-card mv">
+          <div class="result-label">Channel</div>
+          <div class="result-value" id="r-ch">—</div>
+          <div class="result-sub" id="r-ch-sub">MUX Ain—</div>
+        </div>
+        <div class="result-card pct">
+          <div class="result-label">% of Vref</div>
+          <div class="result-value" id="r-pct">—<span class="result-unit">%</span></div>
+          <div class="result-sub" id="r-pct-bar-label">0 / 4095</div>
+        </div>
+      </div>
+
+      <div class="bar-wrap">
+        <div class="bar-label">
+          <span>0</span>
+          <span id="bar-val">0 / 4095</span>
+          <span>4095</span>
+        </div>
+        <div class="bar-track"><div class="bar-fill" id="bar-fill"></div></div>
+      </div>
+
+      <div class="formula" id="formula-box"></div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+const BYTE_DESCS_INIT = ['type','channel','data[hi]','data[lo]','flag','—','—','—'];
+const inputs = [];
+
+function buildFrame() {
+  const grid = document.getElementById('frame-grid');
+  grid.innerHTML = '';
+  for (let i = 0; i < 8; i++) {
+    const cell = document.createElement('div');
+    cell.className = 'byte-cell';
+    cell.innerHTML = `
+      <span class="byte-label">byte[${i}]</span>
+      <input class="byte-input" id="b${i}" maxlength="2" value="00"
+             oninput="onHex(this,${i})" placeholder="00">
+      <span class="byte-desc" id="desc${i}">${BYTE_DESCS_INIT[i]}</span>`;
+    grid.appendChild(cell);
+  }
+}
+
+function onHex(el) {
+  el.value = el.value.replace(/[^0-9a-fA-F]/g,'').toUpperCase();
+  decode();
+}
+
+function getHex(id) {
+  const v = parseInt(document.getElementById(id).value, 16);
+  return isNaN(v) ? 0 : v;
+}
+
+function setClass(id, cls) {
+  const el = document.getElementById('b' + id);
+  if (el) el.className = 'byte-input ' + cls;
+}
+
+function setDesc(id, txt) {
+  const el = document.getElementById('desc' + id);
+  if (el) el.textContent = txt;
+}
+
+function decode() {
+  const b = [];
+  for (let i = 0; i < 8; i++) b.push(getHex('b'+i));
+
+  const type = b[0];
+  const ch   = b[1];
+  const hi   = b[2];
+  const lo   = b[3];
+  const flag = b[4];
+  const vref = parseFloat(document.getElementById('vref').value) || 3.3;
+
+  // reset styling
+  for (let i = 0; i < 8; i++) setClass(i, '');
+  for (let i = 0; i < 8; i++) setDesc(i, BYTE_DESCS_INIT[i]);
+
+  const dot  = document.getElementById('status-dot');
+  const stxt = document.getElementById('status-text');
+  const panel = document.getElementById('result-panel');
+
+  if (type === 0xAD) {
+    // ADC raw frame
+    setClass(0, 'highlight-type'); setDesc(0, 'type: ADC raw');
+    setClass(1, 'highlight-ch');   setDesc(1, `ch ${ch} (Ain${ch})`);
+    setClass(2, 'highlight-data'); setDesc(2, 'ADC high nibble');
+    setClass(3, 'highlight-data'); setDesc(3, 'ADC low byte');
+    if (flag === 0xEE) { setClass(4, 'highlight-err'); setDesc(4, 'ERROR'); }
+
+    const adc = ((hi & 0x0F) << 8) | lo;
+    const mv  = Math.round((adc * vref * 1000) / 4095);
+    const volt = (adc / 4095 * vref);
+    const pct  = (adc / 4095 * 100);
+
+    const isErr = flag === 0xEE;
+    dot.className = isErr ? 'dot err' : 'dot ok';
+    stxt.textContent = isErr
+      ? 'ADC TIMEOUT / ERROR'
+      : `ADC frame · ch${ch} · ${volt.toFixed(3)} V · ${adc} raw`;
+
+    document.getElementById('res-tag').textContent = 'ADC RAW';
+    document.getElementById('res-tag').className = 'panel-tag tag-adc';
+    document.getElementById('res-title').textContent = `Channel ${ch} — Raw ADC Value`;
+
+    document.getElementById('r-adc').innerHTML  = `${adc}<span class="result-unit">/ 4095</span>`;
+    document.getElementById('r-adc-hex').textContent = `0x${adc.toString(16).toUpperCase().padStart(3,'0')}`;
+    document.getElementById('r-volt').innerHTML = `${volt.toFixed(3)}<span class="result-unit">V</span>`;
+    document.getElementById('r-mv').textContent = `${mv} mV`;
+    document.getElementById('r-ch').textContent = ch;
+    document.getElementById('r-ch-sub').textContent = `MUX Ain${ch}`;
+    document.getElementById('r-pct').innerHTML  = `${pct.toFixed(1)}<span class="result-unit">%</span>`;
+    document.getElementById('bar-fill').style.width = pct.toFixed(1) + '%';
+    document.getElementById('bar-val').textContent = `${adc} / 4095`;
+
+    document.getElementById('formula-box').innerHTML =
+      `adc_val = (<span class="hi">0x${hi.toString(16).toUpperCase().padStart(2,'0')}</span> &amp; 0x0F) &lt;&lt; 8 | <span class="hi">0x${lo.toString(16).toUpperCase().padStart(2,'0')}</span> = ${adc}<br>` +
+      `voltage  = ${adc} / 4095 × ${vref} = ${volt.toFixed(4)} V<br>` +
+      `mv       = ${adc} × ${Math.round(vref*1000)} / 4095 = ${mv} mV`;
+
+    panel.style.display = 'block';
+
+  } else if (type === 0xBB) {
+    // Voltage frame
+    setClass(0, 'highlight-type'); setDesc(0, 'type: Voltage');
+    setClass(1, 'highlight-ch');   setDesc(1, `ch ${ch} (Ain${ch})`);
+    setClass(2, 'highlight-data'); setDesc(2, 'mV high byte');
+    setClass(3, 'highlight-data'); setDesc(3, 'mV low byte');
+
+    const mv   = (hi << 8) | lo;
+    const volt = mv / 1000;
+    const adc  = Math.round((mv / (vref * 1000)) * 4095);
+    const pct  = (mv / (vref * 1000) * 100);
+
+    dot.className = 'dot ok';
+    stxt.textContent = `Voltage frame · ch${ch} · ${volt.toFixed(3)} V · ${mv} mV`;
+
+    document.getElementById('res-tag').textContent = 'VOLTAGE';
+    document.getElementById('res-tag').className = 'panel-tag tag-volt';
+    document.getElementById('res-title').textContent = `Channel ${ch} — Voltage Value`;
+
+    document.getElementById('r-adc').innerHTML  = `~${adc}<span class="result-unit">/ 4095</span>`;
+    document.getElementById('r-adc-hex').textContent = `0x${adc.toString(16).toUpperCase().padStart(3,'0')} (est.)`;
+    document.getElementById('r-volt').innerHTML = `${volt.toFixed(3)}<span class="result-unit">V</span>`;
+    document.getElementById('r-mv').textContent = `${mv} mV`;
+    document.getElementById('r-ch').textContent = ch;
+    document.getElementById('r-ch-sub').textContent = `MUX Ain${ch}`;
+    document.getElementById('r-pct').innerHTML  = `${pct.toFixed(1)}<span class="result-unit">%</span>`;
+    document.getElementById('bar-fill').style.width = Math.min(pct,100).toFixed(1) + '%';
+    document.getElementById('bar-val').textContent = `${mv} mV`;
+
+    document.getElementById('formula-box').innerHTML =
+      `mv      = (<span class="hi">0x${hi.toString(16).toUpperCase().padStart(2,'0')}</span> &lt;&lt; 8) | <span class="hi">0x${lo.toString(16).toUpperCase().padStart(2,'0')}</span> = ${mv} mV<br>` +
+      `voltage = ${mv} / 1000 = ${volt.toFixed(3)} V<br>` +
+      `adc_est = ${mv} / ${Math.round(vref*1000)} × 4095 ≈ ${adc}`;
+
+    panel.style.display = 'block';
+
+  } else {
+    // unknown
+    dot.className = 'dot';
+    stxt.textContent = type === 0
+      ? 'รอ frame — ใส่ค่า hex ใน byte[0] เพื่อเริ่ม'
+      : `byte[0] = 0x${b[0].toString(16).toUpperCase().padStart(2,'0')} — ไม่ใช่ type ที่รู้จัก (0xAD=ADC, 0xBB=Volt)`;
+    panel.style.display = 'none';
+  }
+}
+
+buildFrame();
+decode();
+</script>
+</body>
+</html>

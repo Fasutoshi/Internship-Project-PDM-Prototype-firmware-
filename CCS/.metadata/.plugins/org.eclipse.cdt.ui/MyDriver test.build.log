@@ -1,0 +1,19 @@
+
+**** Build of configuration Debug for project MyDriver test ****
+
+"C:\\ti\\ccs1281\\ccs\\utils\\bin\\gmake" -k -j 22 all -O 
+ 
+Building target: "MyDriver test.out"
+Invoking: Arm Linker
+"C:/ti/ccs1281/ccs/tools/compiler/ti-cgt-arm_20.2.7.LTS/bin/armcl" -mv7R4 --code_state=32 --float_support=VFPv3D16 -g --diag_warning=225 --diag_wrap=off --display_error_number --enum_type=packed --abi=eabi -z -m"MyDriver test.map" --heap_size=0x800 --stack_size=0x800 -i"C:/ti/ccs1281/ccs/tools/compiler/ti-cgt-arm_20.2.7.LTS/lib" -i"C:/ti/ccs1281/ccs/tools/compiler/ti-cgt-arm_20.2.7.LTS/include" --reread_libs --diag_wrap=off --display_error_number --warn_sections --xml_link_info="MyDriver test_linkInfo.xml" --rom_model --be32 -o "MyDriver test.out" "./main.obj" "./source/adc.obj" "./source/can.obj" "./source/can_mux_latch.obj" "./source/crc.obj" "./source/dabort.obj" "./source/dcc.obj" "./source/dmm.obj" "./source/emac.obj" "./source/emif.obj" "./source/errata_SSWF021_45.obj" "./source/esm.obj" "./source/gio.obj" "./source/het.obj" "./source/i2c.obj" "./source/lin.obj" "./source/mdio.obj" "./source/mibspi.obj" "./source/notification.obj" "./source/os_croutine.obj" "./source/os_event_groups.obj" "./source/os_heap.obj" "./source/os_list.obj" "./source/os_mpu_wrappers.obj" "./source/os_port.obj" "./source/os_portasm.obj" "./source/os_queue.obj" "./source/os_tasks.obj" "./source/os_timer.obj" "./source/phy_dp83640.obj" "./source/pinmux.obj" "./source/pom.obj" "./source/rtp.obj" "./source/sci.obj" "./source/spi.obj" "./source/sys_core.obj" "./source/sys_dma.obj" "./source/sys_intvecs.obj" "./source/sys_main.obj" "./source/sys_mpu.obj" "./source/sys_pcr.obj" "./source/sys_phantom.obj" "./source/sys_pmm.obj" "./source/sys_pmu.obj" "./source/sys_selftest.obj" "./source/sys_startup.obj" "./source/sys_vim.obj" "./source/system.obj" "../source/sys_link.cmd"  -lrtsv7R4_T_be_v3D16_eabi.lib 
+<Linking>
+error #10056: symbol "main" redefined: first defined in "./main.obj"; redefined in "./source/sys_main.obj"
+error #10010: errors encountered during linking; "MyDriver test.out" not built
+ 
+>> Compilation failure
+makefile:184: recipe for target 'MyDriver test.out' failed
+gmake[1]: *** [MyDriver test.out] Error 1
+makefile:180: recipe for target 'all' failed
+gmake: *** [all] Error 2
+
+**** Build Finished ****

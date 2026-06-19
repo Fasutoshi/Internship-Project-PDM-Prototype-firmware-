@@ -1,0 +1,107 @@
+/**
+ * @file    can_adc_latch.h
+ * @brief   TMS570LS3137 — CAN ADC MUX + Latch library
+ *
+ * Hardware:
+ *   MUX   : 74HC4051  (gioPORTB  pin 0-3)
+ *   Latch : 74HC259   (gioPORTA  pin 0,1,2,3,5)
+ *   ADC   : ADC1 Group1  AD0
+ *   CAN   : canREG1   BOX1=TX  BOX2=RX
+ *
+ * CAN Protocol:
+ *   TX cmd  ID=0x200  byte[0]=cmd  byte[1]=param
+ *   RX resp ID=0x100  frame type ดูจาก byte[0]
+ *
+ * CMD:
+ *   0x01  ADC read    param = channel 0-7
+ *   0x02  Latch ctrl  param = 0-7 toggle, 10=clear all, 11=set all
+ *
+ * RX Frame:
+ *   0xAD  ADC raw   [1]=ch [2]=hi nibble [3]=lo byte [4]=0xEE if error
+ *   0xBB  Voltage   [1]=ch [2]=mV hi     [3]=mV lo
+ *   0x02  Latch ack [1]=bit [2]=bit state [3]=latch_state byte
+ */
+
+#ifndef CAN_ADC_LATCH_H
+#define CAN_ADC_LATCH_H
+
+#include "sys_common.h"
+#include "FreeRTOS.h"
+#include "os_task.h"
+#include "os_queue.h"
+#include "can.h"
+#include "adc.h"
+#include "gio.h"
+
+/* ── Pin mapping: MUX 74HC4051 (gioPORTB) ───────────────────── */
+#define MUX_PORT    gioPORTB
+#define MUX_A0      0U
+#define MUX_A1      1U
+#define MUX_A2      2U
+#define MUX_EN      3U
+
+/* ── Pin mapping: Latch 74HC259 (gioPORTA) ───────────────────── */
+#define LATCH_A0    0U
+#define LATCH_A1    1U
+#define LATCH_A2    2U
+#define LATCH_EN    3U
+#define LATCH_D     5U
+
+/* ── ADC / CAN config ────────────────────────────────────────── */
+#define VREF_MV     3000UL          /* Vref ในหน่วย mV       */
+#define ADC_MAX     4095UL          /* 12-bit ADC             */
+#define CAN_TX_BOX  canMESSAGE_BOX1
+#define CAN_RX_BOX  canMESSAGE_BOX2
+
+/* ── Command bytes ───────────────────────────────────────────── */
+#define CMD_ADC     0x01U
+#define CMD_LATCH   0x02U
+
+/* ── Response type bytes ─────────────────────────────────────── */
+#define FRAME_ADC   0xADU
+#define FRAME_VOLT  0xBBU
+#define FRAME_LATCH 0x02U
+#define FRAME_ERR   0xEEU
+
+/* ── Latch special params ────────────────────────────────────── */
+#define LATCH_CLEAR_ALL  10U
+#define LATCH_SET_ALL    11U
+
+/* ── FreeRTOS config ─────────────────────────────────────────── */
+#define QUEUE_DEPTH     8U
+#define STACK_SIZE      (configMINIMAL_STACK_SIZE)
+
+/* ── Struct ──────────────────────────────────────────────────── */
+typedef struct {
+    uint8_t cmd;
+    uint8_t param;
+} Cmd_t;
+
+/* ================================================================
+ * Public API
+ * ================================================================ */
+
+/**
+ * @brief  เริ่มต้น library — เรียก 1 ครั้งใน main() ก่อน vTaskStartScheduler
+ *         ฟังก์ชันนี้จะ:
+ *           - ตั้ง GPIO direction สำหรับ MUX และ Latch
+ *           - Clear latch ทุก output (Q0-Q7 = 0)
+ *           - สร้าง FreeRTOS Queue และ Task ทั้งหมด
+ */
+void muxlatchInit(void);
+
+/**
+ * @brief  อ่านสถานะ latch ปัจจุบัน (ใช้ query จาก task อื่น)
+ * @return uint8_t  bit mask ของ Q0-Q7 (bit0=Q0 ... bit7=Q7)
+ */
+uint8_t GetLatchState(void);
+
+/**
+ * @brief  อ่านค่า ADC raw จาก MUX channel ที่ระบุ (blocking, ไม่ผ่าน CAN)
+ *         ใช้สำหรับ debug หรือ local read ที่ไม่ต้องการ CAN
+ * @param  ch  channel 0-7
+ * @return uint16_t  ADC raw 0-4095, หรือ 0xFFFF ถ้า timeout
+ */
+uint16_t ReadADC(uint8_t ch);
+
+#endif /* CAN_ADC_LATCH_H */

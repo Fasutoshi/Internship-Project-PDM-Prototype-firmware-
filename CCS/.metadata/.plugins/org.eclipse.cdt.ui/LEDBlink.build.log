@@ -1,0 +1,8 @@
+
+**** Build of configuration Debug for project LEDBlink ****
+
+"C:\\ti\\ccs1281\\ccs\\utils\\bin\\gmake" -k -j 22 all -O 
+ 
+gmake[1]: 'LEDBlink.out' is up to date.
+
+**** Build Finished ****
